@@ -1,17 +1,8 @@
-import { onRequest } from './functions/api/responses.js';
-
-export default {
-  async fetch(request, env, ctx) {
-    const path = new URL(request.url).pathname;
-    if (path === '/api/responses') {
-      return onRequest({ request, env, waitUntil: ctx.waitUntil.bind(ctx) });
-    }
-    if (path === '/api' || path.startsWith('/api/')) {
-      return new Response(JSON.stringify({ error: 'Not found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
-      });
-    }
-    return env.ASSETS.fetch(request);
-  }
-};
+import{VERSION,questions,visible,validate}from './survey-extended.js';
+const json=(v,s=200)=>new Response(JSON.stringify(v),{status:s,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+async function setup(env){const missing=[];if(!env.DB)missing.push('D1バインディング DB');else{try{await env.DB.prepare('SELECT id FROM responses LIMIT 1').all();}catch{missing.push('DB接続・responsesテーブル（schema.sqlの適用）');}}if(env.SURVEY_OPEN!=='true')missing.push('SURVEY_OPEN=true');if(!env.SURVEY_NOTICE?.trim())missing.push('管理者・連絡先・保管期限等を記載したSURVEY_NOTICE');return{open:missing.length===0,missing,notice:missing.length?'受付準備中です。管理者の設定が必要です：'+missing.join('／'):env.SURVEY_NOTICE};}
+async function authorized(request,env){if(typeof env.ADMIN_TOKEN!=='string'||env.ADMIN_TOKEN.length<32)return false;const t=request.headers.get('Authorization')||'';if(t.length>512)return false;const enc=new TextEncoder();const a=new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(t)));const b=new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode('Bearer '+env.ADMIN_TOKEN)));let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];return diff===0;}
+export default{async fetch(request,env){const path=new URL(request.url).pathname;
+if(path==='/api/admin/responses'){if(!await authorized(request,env))return json({error:'認証できません。管理用トークンを確認してください。'},401);if(request.method!=='GET')return json({error:'Method not allowed'},405);if(!env.DB)return json({error:'DBが未設定です。'},503);const cursor=new URL(request.url).searchParams.get('cursor')||'';if(cursor.length>100)return json({error:'Invalid cursor'},400);try{const result=await env.DB.prepare('SELECT id,version,answers_json,created_at FROM responses WHERE id > ? ORDER BY id LIMIT 501').bind(cursor).all();const rows=result.results.slice(0,500).map(r=>({id:r.id,version:r.version,created_at:r.created_at,answers:JSON.parse(r.answers_json)}));return json({rows,next:result.results.length>500?rows[rows.length-1].id:null});}catch{return json({error:'DBを読み出せません。schema.sqlとバインディングを確認してください。'},503);}}
+if(path==='/api/responses'){if(request.method==='GET')return json(await setup(env));if(request.method!=='POST')return json({error:'Method not allowed'},405);const state=await setup(env);if(!state.open)return json({error:'現在、回答を受け付けていません。'},503);if(request.headers.get('Origin')!==new URL(request.url).origin)return json({error:'送信元が不正です。'},403);if(!request.headers.get('Content-Type')?.startsWith('application/json'))return json({error:'形式が不正です。'},415);let body;try{const reader=request.body?.getReader();if(!reader)throw Error();let size=0,chunks=[];while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>24000){await reader.cancel();return json({error:'回答が大きすぎます。'},413);}chunks.push(value);}const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}body=JSON.parse(new TextDecoder().decode(bytes));}catch{return json({error:'回答の形式が不正です。'},400);}if(body?.version!==VERSION||body.consent!==true||! /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.id||'')||!body.answers||typeof body.answers!=='object'||Array.isArray(body.answers))return json({error:'ページを再読み込みして入力し直してください。'},400);const entries=Object.entries(body.answers);if(!entries.length||entries.length>questions.length)return json({error:'回答数が不正です。'},400);for(const[k,v]of entries){const q=questions.find(q=>q.id===k);if(!q||!visible(q,body.answers)||!validate(q,v))return json({error:'回答内容が不正です。'},400);}if(body.answers.rank&&body.answers.cohort&&Number(body.answers.rank)>Number(body.answers.cohort))return json({error:'学年順位が対象人数を超えています。戻って修正するか空欄にしてください。'},400);try{await env.DB.prepare('INSERT INTO responses (id,version,answers_json,created_at) VALUES (?,?,?,?) ON CONFLICT(id) DO NOTHING').bind(body.id,VERSION,JSON.stringify(body.answers),new Date().toISOString()).run();return json({ok:true});}catch{return json({error:'保存できませんでした。再送信してください。'},500);}}
+if(path==='/api'||path.startsWith('/api/'))return json({error:'Not found'},404);return env.ASSETS.fetch(request);}};

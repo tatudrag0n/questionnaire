@@ -1,10 +1,11 @@
-import { mkdir, copyFile, rm } from 'node:fs/promises';
-
-const root = new URL('../', import.meta.url);
-const out = new URL('dist/', root);
-await rm(out, { recursive: true, force: true });
-await mkdir(out, { recursive: true });
-for (const file of ['index.html', 'app.js', 'survey.js']) {
-  await copyFile(new URL(file, root), new URL(file, out));
-}
-console.log('Static assets prepared in dist/');
+import{mkdir,copyFile,rm,readFile,writeFile}from 'node:fs/promises';
+const root=new URL('../',import.meta.url),out=new URL('dist/',root);
+await rm(out,{recursive:true,force:true});await mkdir(out,{recursive:true});
+for(const f of ['index.html','app.js','admin.html'])await copyFile(new URL(f,root),new URL(f,out));
+await copyFile(new URL('survey.js',root),new URL('survey-base.js',out));
+const extended=await readFile(new URL('survey-extended.js',root),'utf8');
+await writeFile(new URL('survey.js',out),extended.replace("from './survey.js'","from './survey-base.js'"));
+const app=await readFile(new URL('app.js',out),'utf8');
+await writeFile(new URL('app.js',out),app.replace("open=c.open===true;","open=c.open===true;if(!open&&c.notice){$('notice').textContent=c.notice;updateStart();return;}").replace("'「利用していない」「特にない」などは他の項目と同時に選べません。'","'入力を確認してください。順位・対象人数は1〜9999の半角整数、試験名は100文字以内です。「利用していない」「特にない」は単独で選んでください。'"));
+const html=await readFile(new URL('index.html',out),'utf8');
+await writeFile(new URL('index.html',out),html.replace('氏名・出席番号・クラス・メールアドレスは質問しません。','氏名・出席番号・クラス・メールアドレスは質問しません。学年順位・試験名・対象人数は任意です。組合せから本人が推測される可能性があるため、不安な場合は回答しないでください。'));
