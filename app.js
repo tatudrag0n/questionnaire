@@ -1,7 +1,7 @@
 import{VERSION,questions,visible,validate}from './survey.js';
 const $=id=>document.getElementById(id);let answers={},pos=0,open=false,review=false,sending=false,id=crypto.randomUUID();
 const list=()=>questions.filter(q=>visible(q,answers));
-async function init(){try{const r=await fetch('/api/responses',{cache:'no-store'});if(!r.ok)throw Error();const c=await r.json();open=c.open===true;$('notice').textContent=open?c.notice:'現在は受付準備中です。回答はまだ送信できません。';}catch{$('notice').textContent='現在は受付準備中です。回答先が未設定か、接続できません。';}updateStart();}
+async function init(){try{const r=await fetch('/api/responses',{cache:'no-store'});if(!r.ok)throw Error();const c=await r.json();open=c.open===true;if(!open&&c.notice){$('notice').textContent=c.notice;updateStart();return;}$('notice').textContent=open?c.notice:'現在は受付準備中です。回答はまだ送信できません。';}catch{$('notice').textContent='現在は受付準備中です。回答先が未設定か、接続できません。';}updateStart();}
 function updateStart(){$('start').disabled=!open||!$('consent').checked;}
 $('consent').onchange=updateStart;$('start').onclick=()=>{$('intro').hidden=true;$('survey').hidden=false;render();};
 function el(tag,text){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;}
