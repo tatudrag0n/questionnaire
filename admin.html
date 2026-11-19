@@ -1,17 +1,394 @@
-<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>アンケート管理・集計</title><style>body{font:16px system-ui;max-width:1100px;margin:auto;padding:24px;background:#f5f7fb;color:#17304a}input,select,button{font:inherit;padding:10px;margin:6px 0}input{width:min(95%,500px)}button{cursor:pointer}table{border-collapse:collapse;background:white}td,th{border:1px solid #cbd5e1;padding:8px;text-align:left}#table{overflow:auto}p{line-height:1.8}pre{white-space:pre-wrap}section{margin:24px 0}</style><h1>管理者用・回答集計</h1><p>管理トークンはCloudflareのシークレットADMIN_TOKENに設定してください。入力値は保存しません。共有端末では利用後にログアウトしてください。少人数区分や個別回答は公表しないでください。</p><form id="login"><label>管理トークン（32文字以上）<br><input id="token" type="password" autocomplete="off" required></label><button>回答を読み込む</button></form><p id="status" role="status"></p><main id="panel" hidden><button id="logout">ログアウト・読み込みデータを消す</button><button id="csv">全回答をCSVで保存</button><p>集計画面は現行版だけを分析します。CSVには旧版を含む全回答・自由記述が入ります。非公開で管理してください。終了後もDBを削除しなければ読み出せます。</p><section><label>学年 <select id="grade"><option value="">すべて</option><option>1年</option><option>2年</option><option>3年</option></select></label> <label>集計対象の版 <select id="version" disabled><option value="">現行版</option></select></label></section><section><label>集計する項目 <select id="metric"></select></label><br><label>比較対象（列） <select id="by"><option value="">なし（回答数の分布）</option></select></label><p>利用状況や学習のしやすさは自己申告です。利用経験と回答の関連を見ても、ICTが学力を変えた証明にはなりません。授業中の学習外利用は本人が思い出した授業回数で、授業数を分母にした発生率ではありません。回答者の偏りや未回答にも注意してください。管理画面は学年で絞り込めますが、日時による絞り込みはありません。回答日時はCSVのcreated_at（UTC）で確認できます。クロス集計の％は各列の人数に対する割合です。複数回答は各選択肢に計上します。※は比較表で5人未満のセルに表示されます。ほかの場合も少人数の集計は公表しないでください。</p><p id="summary"></p><div id="table"></div></section></main><script type="module">
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>アンケート管理・集計</title><style>
+body{font:16px system-ui;max-width:1100px;margin:auto;padding:24px;background:#f5f7fb;color:#17304a}
+input,select,button{font:inherit;padding:10px;margin:6px 0}
+input{width:min(95%,500px)}
+select{max-width:min(95%,760px)}
+button{cursor:pointer}
+table{border-collapse:collapse;background:white}
+td,th{border:1px solid #cbd5e1;padding:8px;text-align:left}
+td.n{text-align:right}
+#table{overflow:auto}
+p{line-height:1.8}
+pre{white-space:pre-wrap}
+section{margin:24px 0}
+details{background:white;border:1px solid #cbd5e1;border-radius:8px;margin:8px 0;padding:6px 14px}
+summary{cursor:pointer;font-weight:600;line-height:1.6}
+details h3{font-size:1rem;margin:14px 0 4px}
+.bar{background:#e2e8f0;border-radius:4px;min-width:140px}
+.bar div{background:#3b82f6;height:12px;border-radius:4px;min-width:1px}
+.note{color:#52657a;font-size:.92rem}
+h2{border-bottom:2px solid #cbd5e1;padding-bottom:4px;font-size:1.2rem;margin-top:0}
+</style>
+<h1>管理者用・回答集計</h1>
+<p>管理トークンはCloudflareのシークレットADMIN_TOKENに設定してください。入力値は保存しません。共有端末では利用後にログアウトしてください。少人数区分や個別回答は公表しないでください。</p>
+<form id="login"><label>管理トークン（32文字以上）<br><input id="token" type="password" autocomplete="off" required></label><button>回答を読み込む</button></form>
+<p id="status" role="status"></p>
+<main id="panel" hidden>
+<button id="logout">ログアウト・読み込みデータを消す</button>
+<button id="csv">全回答をCSVで保存</button>
+<p>集計画面は現行版だけを分析します。CSVには旧版を含む全回答・自由記述が入ります。非公開で管理してください。終了後もDBを削除しなければ読み出せます。</p>
+<section>
+<h2>閲覧数・回答数の概要</h2>
+<p id="funnel"></p>
+<div id="daily"></div>
+<p class="note">閲覧・開始・送信はページから送られる合計カウンタで、個人と結びつく情報は記録していません。閲覧はページを開いた延べ数で、再読み込みや同じ人の再訪を含むため、厳密な人数ではありません。記録はこの機能を公開した時点から始まり、過去にさかのぼりません。日付は日本時間（JST）です。「回答」列はresponsesテーブルの保存件数（旧版を含む全版）で、CSVのcreated_at（UTC）をJSTに換算して数えています。</p>
+</section>
+<section>
+<h2>集計の条件</h2>
+<label>学年 <select id="grade"><option value="">すべて</option><option>1年</option><option>2年</option><option>3年</option></select></label>
+<label>回答で絞り込み <select id="fq"><option value="">なし（全員を対象）</option></select></label>
+<label id="fvl" hidden>条件 <select id="fv"></select></label>
+<p id="target"></p>
+<p class="note">「回答で絞り込み」を選ぶと、その回答をした人だけを対象に、下の全設問集計とクロス集計を見られます。例：「生成AIを学習に利用した人」に絞って、集中の傾向や対策の回答を確認する、という使い方です。日時による絞り込みはありません（日別の件数は上の概要、回答日時はCSVのcreated_atで確認できます）。絞り込み後の人数が少ない集計は、個人が推測される場合があるため公表しないでください。</p>
+</section>
+<section>
+<h2>全設問の集計（人数と割合）</h2>
+<button id="runAll">全設問を集計する</button>
+<p class="note">割合は集計対象の人数に対する％です。複数回答の設問は各選択肢に計上するため、合計は100％を超える場合があります。自由記述は件数のみ表示し、本文はCSVで確認してください。先頭に「項目別の回答率」（未回答の多さの確認用）と「順序尺度の平均スコア」（5〜6件法などの傾向の目安）も表示します。</p>
+<div id="allMetrics"></div>
+</section>
+<section>
+<h2>項目間の相関（順位相関）</h2>
+<label>項目A <select id="corA"></select></label>
+<label>項目B <select id="corB"></select></label>
+<p id="corOut"></p>
+<p class="note">順序のある選択肢（5〜6件法など）を1,2,3…と数値化し、スピアマンの順位相関係数ρ（-1〜+1）を計算します。0に近いほど関連が見られず、±1に近いほど強い対応関係です。「判断できない」「分からない」などの選択肢と未回答は除きます。利用経験と感じ方に相関があっても、ICTが学力や集中を変えたという因果関係の証明にはなりません。人数が少ないと値は不安定なため、30件未満では参考値とし、少人数での結果は公表しないでください。</p>
+</section>
+<section>
+<h2>同時に選ばれた選択肢（複数回答の設問）</h2>
+<label>設問 <select id="coq"></select></label>
+<div id="coOut"></div>
+<p class="note">同じ人が一緒に選んだ選択肢の組合せです。対角線はその選択肢を選んだ人数、それ以外は両方を選んだ人数です（例：「通知を切る」と「集中モードにする」を両方行っている人の数）。※は5人未満です。</p>
+</section>
+<section>
+<h2>クロス集計</h2>
+<label>集計する項目 <select id="metric"></select></label><br>
+<label>比較対象（列） <select id="by"><option value="">なし（回答数の分布）</option></select></label>
+<p class="note">利用状況や学習のしやすさは自己申告です。利用経験と回答の関連を見ても、ICTが学力を変えた証明にはなりません。授業中の学習外利用は本人が思い出した授業回数で、授業数を分母にした発生率ではありません。回答者の偏りや未回答にも注意してください。クロス集計の％は各列の人数に対する割合です。複数回答は各選択肢に計上します。複数回答の設問を列に選ぶと「その選択肢を選んだ人／選んでいない・未回答の人」で比較します。※は比較表で5人未満のセルに表示されます。ほかの場合も少人数の集計は公表しないでください。</p>
+<p id="summary"></p>
+<div id="table"></div>
+</section>
+</main>
+<script type="module">
 import{VERSION,questions}from './survey.js';
-const $=id=>document.getElementById(id);let rows=[];const metrics=[],groups=[];
-for(const q of questions){if(q.type==='text')continue;if(q.type==='matrix')q.rows.forEach((r,i)=>{const m={q,i,label:q.section+'：'+r};metrics.push(m);groups.push(m);});else{metrics.push({q,label:q.title});if(q.type==='single')groups.push({q,label:q.title});}}
+const $=id=>document.getElementById(id);
+let rows=[],stats=[],statsNote='';
+const metrics=[],groups=[],filters=[];
+for(const q of questions){
+  if(q.type==='text'){filters.push({q,label:q.title+'（自由記述：記入あり）'});continue;}
+  if(q.type==='matrix')q.rows.forEach((r,i)=>{
+    const m={q,i,label:q.section+'：'+r};
+    metrics.push(m);groups.push(m);filters.push({q,i,label:q.title+'［'+r+'］'});
+  });
+  else{
+    metrics.push({q,label:q.section+'：'+q.title});
+    filters.push({q,label:q.title});
+    if(q.type==='single')groups.push({q,label:q.section+'：'+q.title});
+    if(q.type==='multi')q.options.forEach(o=>groups.push({q,option:o,label:q.section+'：'+q.title+'［'+o+'］を選んだ'}));
+  }
+}
 metrics.forEach((m,i)=>$('metric').add(new Option(m.label,i)));
-groups.forEach((m,i)=>$('by').add(new Option(m.label,i)));
+groups.forEach((g,i)=>$('by').add(new Option(g.label,i)));
+filters.forEach((f,i)=>$('fq').add(new Option(f.label,i)));
+// 「判断できない」「分からない」などを除いた残りの選択肢に自然な順序がある項目を、尺度（順序尺度）として扱います。
+// 「利用していない」は週0日・0回の意味を持つため0点側に含めます。順序が成立しない設問はIDで除外します。
+const EXCLUDE=/判断できない|分からない|該当しない|比較できない|経験がない|決めていない|回答しない/;
+const NON_ORDINAL=new Set(['aiuse','airule']);
+const scaleOf=q=>q.options.filter(o=>!EXCLUDE.test(o));
+const ordinals=metrics.filter(m=>m.q.type!=='multi'&&!NON_ORDINAL.has(m.q.id)&&scaleOf(m.q).length>=2);
+ordinals.forEach((m,i)=>{$('corA').add(new Option(m.label,i));$('corB').add(new Option(m.label,i));});
+$('corB').selectedIndex=Math.min(1,ordinals.length-1);
+questions.filter(q=>q.type==='multi').forEach(q=>$('coq').add(new Option(q.section+'：'+q.title,q.id)));
+function scoreOf(m,a){
+  const v=pick(a,m);
+  if(typeof v!=='string')return null;
+  const i=scaleOf(m.q).indexOf(v);
+  return i<0?null:i+1;
+}
 const pick=(a,m)=>{let v=a[m.q.id];if(m.i!==undefined)v=v?.[m.i];return v;};
-$('login').onsubmit=async e=>{e.preventDefault();const button=$('login').querySelector('button');button.disabled=true;rows=[];$('panel').hidden=true;$('table').replaceChildren();const token=$('token').value;try{let cursor='';do{const r=await fetch('/api/admin/responses?cursor='+encodeURIComponent(cursor),{headers:{Authorization:'Bearer '+token},cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.error||'取得に失敗しました');rows.push(...d.rows);cursor=d.next||'';$('status').textContent=rows.length+'件読み込み中';}while(cursor);const currentRows=rows.filter(r=>r.version===VERSION);$('version').replaceChildren(new Option(VERSION+'（現行）',VERSION));$('version').value=VERSION;$('token').value='';$('panel').hidden=false;$('status').textContent=rows.length+'件読み込み完了（現行版 '+currentRows.length+'件）';render();}catch(e){rows=[];$('status').textContent=e.message;}finally{button.disabled=false;}};
-function selected(){return rows.filter(r=>r.version===VERSION&&(!$('grade').value||r.answers.grade===$('grade').value));}
-function render(){const data=selected(),m=metrics[Number($('metric').value)],g=$('by').value===''?null:groups[Number($('by').value)];const cols=g?[...g.q.options,'未回答']:['人数'];const labels=[...m.q.options,'未回答'];const counts=new Map(labels.map(x=>[x,Array(cols.length).fill(0)]));const colTotal=Array(cols.length).fill(0);let answered=0;for(const r of data){let v=pick(r.answers,m);let values=Array.isArray(v)?v:v?[v]:[];if(values.length)answered++;else values=['未回答'];let col=0;if(g)col=cols.indexOf(pick(r.answers,g)||'未回答');if(col<0)continue;colTotal[col]++;for(const x of values)if(counts.has(x))counts.get(x)[col]++;}
-const t=document.createElement('table');function tr(values,header=false){const row=t.insertRow();for(const value of values){const cell=document.createElement(header?'th':'td');cell.textContent=value;row.append(cell);}}
-tr(['選択肢',...cols],true);for(const[l,c]of counts)tr([l,...c.map((n,i)=>g&&colTotal[i]?`${n}（${Math.round(100*n/colTotal[i])}%）${n>0&&n<5?'※':''}`:`${n}${n>0&&n<5&&g?'※':''}`)]);if(g)tr(['列の人数',...colTotal]);
-$('table').replaceChildren(t);$('summary').textContent=`対象 ${data.length}件／この項目への回答 ${answered}件。表は人数（列の人数に対する％）です。複数回答の合計は対象人数を超える場合があります。`;}
-for(const id of ['grade','metric','by'])$(id).onchange=render;
-$('logout').onclick=()=>{rows=[];$('token').value='';$('panel').hidden=true;$('table').replaceChildren();$('status').textContent='読み込みデータを消しました。';};
+const el=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;};
+const jst=iso=>new Date(Date.parse(iso)+9*3600*1000).toISOString().slice(0,10);
+const pc=(n,d)=>d?Math.round(100*n/d)+'%':'-';
+$('login').onsubmit=async e=>{
+  e.preventDefault();
+  const button=$('login').querySelector('button');
+  button.disabled=true;
+  rows=[];stats=[];statsNote='';
+  $('panel').hidden=true;$('table').replaceChildren();$('allMetrics').replaceChildren();
+  const token=$('token').value;
+  try{
+    let cursor='';
+    do{
+      const r=await fetch('/api/admin/responses?cursor='+encodeURIComponent(cursor),{headers:{Authorization:'Bearer '+token},cache:'no-store'});
+      const d=await r.json();
+      if(!r.ok)throw Error(d.error||'取得に失敗しました');
+      rows.push(...d.rows);cursor=d.next||'';
+      $('status').textContent=rows.length+'件読み込み中';
+    }while(cursor);
+    try{
+      const r=await fetch('/api/admin/stats',{headers:{Authorization:'Bearer '+token},cache:'no-store'});
+      const d=await r.json();
+      if(!r.ok)throw Error(d.error||'閲覧数を取得できませんでした');
+      stats=d.rows;
+    }catch(err){statsNote=err.message;}
+    const currentRows=rows.filter(r=>r.version===VERSION);
+    $('token').value='';
+    $('panel').hidden=false;
+    $('status').textContent=rows.length+'件読み込み完了（現行版 '+currentRows.length+'件）';
+    renderOverview();refresh();
+  }catch(e){rows=[];stats=[];$('status').textContent=e.message;}
+  finally{button.disabled=false;}
+};
+function matchFilter(r){
+  if($('fq').value==='')return true;
+  const f=filters[Number($('fq').value)],a=r.answers[f.q.id];
+  if(f.q.type==='text')return typeof a==='string'&&a.trim()!=='';
+  const v=$('fv').value;
+  if(f.i!==undefined)return Array.isArray(a)&&a[f.i]===v;
+  if(f.q.type==='multi')return Array.isArray(a)&&a.includes(v);
+  return a===v;
+}
+function selected(){return rows.filter(r=>r.version===VERSION&&(!$('grade').value||r.answers.grade===$('grade').value)&&matchFilter(r));}
+function renderOverview(){
+  const sum=ev=>stats.reduce((a,s)=>a+(s.event===ev?s.count:0),0);
+  const v=sum('view'),st=sum('start'),sb=sum('submit');
+  const cur=rows.filter(r=>r.version===VERSION).length;
+  $('funnel').textContent=statsNote
+    ?'閲覧数の集計はまだ利用できません：'+statsNote+'（回答の集計・CSVは利用できます。公開ページの表示・回答開始は記録されません）'
+    :`閲覧 ${v}件／回答の開始 ${st}件／送信 ${sb}件（閲覧に対する送信の割合 ${pc(sb,v)}）。保存済み回答 ${rows.length}件（現行版 ${cur}件）。`;
+  const days=new Map();
+  const bucket=k=>{if(!days.has(k))days.set(k,{view:0,start:0,submit:0,save:0});return days.get(k);};
+  for(const s of stats){const b=bucket(s.day);if(b[s.event]!==undefined)b[s.event]+=s.count;}
+  for(const r of rows)bucket(jst(r.created_at)).save++;
+  const t=el('table');
+  const head=t.insertRow();
+  ['日付（JST）','閲覧','開始','送信','回答（保存数・全版）'].forEach(h=>head.append(el('th',h)));
+  for(const[k,d]of[...days].sort()){
+    const tr=t.insertRow();
+    tr.append(el('td',k));
+    for(const key of['view','start','submit','save']){const c=el('td',String(d[key]));c.className='n';tr.append(c);}
+  }
+  $('daily').replaceChildren(t);
+}
+function distTable(data,m){
+  const labels=[...m.q.options,'未回答'];
+  const counts=new Map(labels.map(l=>[l,0]));
+  let answered=0;
+  for(const r of data){
+    const v=pick(r.answers,m);
+    let vs=Array.isArray(v)?v:v?[v]:[];
+    if(vs.length)answered++;else vs=['未回答'];
+    for(const x of vs)if(counts.has(x))counts.set(x,counts.get(x)+1);
+  }
+  const t=el('table');
+  const head=t.insertRow();
+  ['選択肢','人数','割合',''].forEach(h=>head.append(el('th',h)));
+  for(const[l,n]of counts){
+    const tr=t.insertRow();
+    tr.append(el('td',l));
+    const cn=el('td',String(n));cn.className='n';tr.append(cn);
+    const cp=el('td',pc(n,data.length));cp.className='n';tr.append(cp);
+    const bar=el('div');bar.className='bar';
+    const fill=el('div');fill.style.width=(data.length?Math.round(100*n/data.length):0)+'%';
+    bar.append(fill);
+    const cb=el('td');cb.append(bar);tr.append(cb);
+  }
+  const note=el('p',`この項目への回答 ${answered}件／対象 ${data.length}件`+(m.q.type==='multi'?'（複数回答のため合計は対象人数を超える場合があります）':''));
+  note.className='note';
+  const wrap=el('div');wrap.append(t,note);
+  return wrap;
+}
+function ratesTable(data){
+  const list=metrics.map(m=>{
+    let answered=0;
+    for(const r of data){
+      const v=pick(r.answers,m);
+      if(Array.isArray(v)?v.length:v!==undefined&&v!==null)answered++;
+    }
+    return{m,answered};
+  }).sort((a,b)=>a.answered-b.answered);
+  const t=el('table');
+  const head=t.insertRow();
+  ['項目','回答','未回答','回答率'].forEach(h=>head.append(el('th',h)));
+  for(const{m,answered}of list){
+    const tr=t.insertRow();
+    tr.append(el('td',m.label));
+    const c1=el('td',String(answered));c1.className='n';tr.append(c1);
+    const c2=el('td',String(data.length-answered));c2.className='n';tr.append(c2);
+    const c3=el('td',pc(answered,data.length));c3.className='n';tr.append(c3);
+  }
+  return t;
+}
+function scoresTable(data){
+  const t=el('table');
+  const head=t.insertRow();
+  ['項目','人数','平均','標準偏差','範囲'].forEach(h=>head.append(el('th',h)));
+  let any=false;
+  for(const m of ordinals){
+    const xs=[];
+    for(const r of data){const s=scoreOf(m,r.answers);if(s!==null)xs.push(s);}
+    if(!xs.length)continue;
+    any=true;
+    const mean=xs.reduce((a,b)=>a+b,0)/xs.length;
+    const sd=Math.sqrt(xs.reduce((a,b)=>a+(b-mean)**2,0)/xs.length);
+    const tr=t.insertRow();
+    tr.append(el('td',m.label));
+    const c1=el('td',String(xs.length));c1.className='n';tr.append(c1);
+    const c2=el('td',mean.toFixed(2));c2.className='n';tr.append(c2);
+    const c3=el('td',sd.toFixed(2));c3.className='n';tr.append(c3);
+    tr.append(el('td','1〜'+scaleOf(m.q).length));
+  }
+  return any?t:el('p','集計対象に尺度項目の回答がありません。');
+}
+function renderAll(){
+  const data=selected();
+  const wrap=$('allMetrics');wrap.replaceChildren();
+  const rates=el('details');
+  rates.append(el('summary','項目別の回答率（低い順・未回答の確認用）'));
+  rates.append(ratesTable(data));
+  wrap.append(rates);
+  const scores=el('details');
+  scores.append(el('summary','順序尺度の平均スコア（目安）'));
+  scores.append(scoresTable(data));
+  const scNote=el('p','5〜6件法などを1,2,3…と数値化した平均です。「判断できない」「分からない」などの選択肢と未回答は除きます。比較系の設問では中央より大きいほどICT寄り・小さいほど紙寄りの感じ方です。主観の目安であり、学力の評価ではありません。');
+  scNote.className='note';
+  scores.append(scNote);
+  wrap.append(scores);
+  for(const q of questions){
+    const det=el('details');
+    det.append(el('summary',q.section+'：'+q.title));
+    if(q.type==='text'){
+      const n=data.filter(r=>typeof r.answers[q.id]==='string'&&r.answers[q.id].trim()).length;
+      det.append(el('p',`記入あり ${n}件（${pc(n,data.length)}）。本文はCSVで確認してください。`));
+    }else if(q.type==='matrix'){
+      q.rows.forEach((row,i)=>{det.append(el('h3',row));det.append(distTable(data,{q,i}));});
+    }else det.append(distTable(data,{q}));
+    wrap.append(det);
+  }
+}
+function render(){
+  const data=selected(),m=metrics[Number($('metric').value)],g=$('by').value===''?null:groups[Number($('by').value)];
+  const cols=g?(g.option!==undefined?['選んだ','選んでいない・未回答']:[...g.q.options,'未回答']):['人数'];
+  const labels=[...m.q.options,'未回答'];
+  const counts=new Map(labels.map(x=>[x,Array(cols.length).fill(0)]));
+  const colTotal=Array(cols.length).fill(0);
+  let answered=0;
+  for(const r of data){
+    const v=pick(r.answers,m);
+    let values=Array.isArray(v)?v:v?[v]:[];
+    if(values.length)answered++;else values=['未回答'];
+    let col=0;
+    if(g){
+      if(g.option!==undefined){const gv=r.answers[g.q.id];col=Array.isArray(gv)&&gv.includes(g.option)?0:1;}
+      else{col=cols.indexOf(pick(r.answers,g)||'未回答');if(col<0)continue;}
+    }
+    colTotal[col]++;
+    for(const x of values)if(counts.has(x))counts.get(x)[col]++;
+  }
+  const t=el('table');
+  const head=t.insertRow();
+  ['選択肢',...cols].forEach(h=>head.append(el('th',h)));
+  for(const[l,c]of counts){
+    const tr=t.insertRow();
+    tr.append(el('td',l));
+    c.forEach((n,i)=>{
+      const cell=colTotal[i]?`${n}（${pc(n,colTotal[i])}）${g&&n>0&&n<5?'※':''}`:'0';
+      tr.append(el('td',cell));
+    });
+  }
+  if(g){const tr=t.insertRow();tr.append(el('th','列の人数'));colTotal.forEach(n=>tr.append(el('td',String(n))));}
+  $('table').replaceChildren(t);
+  $('summary').textContent=`対象 ${data.length}件／この項目への回答 ${answered}件。表は人数（各列の人数に対する％）です。複数回答の合計は対象人数を超える場合があります。`;
+}
+function ranks(a){
+  const order=[...a.keys()].sort((i,j)=>a[i]-a[j]);
+  const r=new Array(a.length);
+  let i=0;
+  while(i<order.length){
+    let j=i;
+    while(j+1<order.length&&a[order[j+1]]===a[order[i]])j++;
+    const avg=(i+j)/2+1;
+    for(let k=i;k<=j;k++)r[order[k]]=avg;
+    i=j+1;
+  }
+  return r;
+}
+function renderCor(){
+  const out=$('corOut');
+  const A=ordinals[Number($('corA').value)],B=ordinals[Number($('corB').value)];
+  if(!A||!B){out.textContent='';return;}
+  if(A===B){out.textContent='同じ項目同士です。別の項目を選んでください。';return;}
+  const xs=[],ys=[];
+  for(const r of selected()){
+    const a=scoreOf(A,r.answers),b=scoreOf(B,r.answers);
+    if(a!==null&&b!==null){xs.push(a);ys.push(b);}
+  }
+  const n=xs.length;
+  if(n<3){out.textContent=`有効なペアが${n}件しかないため計算できません（3件以上必要）。`;return;}
+  const rx=ranks(xs),ry=ranks(ys);
+  const mx=rx.reduce((a,b)=>a+b,0)/n,my=ry.reduce((a,b)=>a+b,0)/n;
+  let num=0,dx=0,dy=0;
+  for(let i=0;i<n;i++){const a=rx[i]-mx,b=ry[i]-my;num+=a*b;dx+=a*a;dy+=b*b;}
+  if(!dx||!dy){out.textContent='片方の回答がすべて同じ順位のため計算できません。';return;}
+  const rho=num/Math.sqrt(dx*dy);
+  out.textContent=`有効ペア ${n}件／スピアマンの順位相関係数 ρ = ${rho.toFixed(2)}（${Math.abs(rho)<0.2?'関連はほとんど見られない':Math.abs(rho)<0.4?'弱い関連':Math.abs(rho)<0.7?'中程度の関連':'強い関連'}の目安）${n<30?'。人数が少ないため参考値です':''}`;
+}
+function renderCo(){
+  const q=questions.find(q=>q.id===$('coq').value);
+  const out=$('coOut');
+  if(!q){out.replaceChildren();return;}
+  const sets=selected().map(r=>r.answers[q.id]).filter(a=>Array.isArray(a)&&a.length);
+  const t=el('table');
+  const head=t.insertRow();
+  head.append(el('th',''));
+  q.options.forEach(o=>head.append(el('th',o)));
+  q.options.forEach((o,i)=>{
+    const tr=t.insertRow();
+    tr.append(el('th',o));
+    q.options.forEach((p,j)=>{
+      const n=sets.filter(s=>s.includes(o)&&s.includes(p)).length;
+      const c=el('td',String(n)+(n>0&&n<5?'※':''));
+      c.className='n';
+      if(i===j)c.style.background='#e2e8f0';
+      tr.append(c);
+    });
+  });
+  const note=el('p',`1つ以上選択した回答 ${sets.length}件を集計。対角線はその選択肢を選んだ人数です。`);
+  note.className='note';
+  out.replaceChildren(t,note);
+}
+function refresh(){
+  let label=`集計対象：${selected().length}件（現行版`;
+  if($('grade').value)label+='・学年 '+$('grade').value;
+  if($('fq').value!=='')label+='・絞り込み「'+filters[Number($('fq').value)].label+'」';
+  label+='）';
+  $('target').textContent=label;
+  render();
+  renderCor();
+  renderCo();
+  if($('allMetrics').firstChild)renderAll();
+}
+$('fq').onchange=()=>{
+  $('fv').replaceChildren();
+  if($('fq').value==='')$('fvl').hidden=true;
+  else{
+    const f=filters[Number($('fq').value)];
+    (f.q.type==='text'?['記入あり']:f.q.options).forEach(o=>$('fv').add(new Option(o,o)));
+    $('fvl').hidden=false;
+  }
+  refresh();
+};
+for(const id of['grade','fv','metric','by'])$(id).onchange=refresh;
+$('corA').onchange=renderCor;
+$('corB').onchange=renderCor;
+$('coq').onchange=renderCo;
+$('runAll').onclick=renderAll;
+$('logout').onclick=()=>{
+  rows=[];stats=[];
+  $('token').value='';$('panel').hidden=true;
+  $('table').replaceChildren();$('allMetrics').replaceChildren();$('daily').replaceChildren();
+  $('funnel').textContent='';$('summary').textContent='';$('target').textContent='';$('corOut').textContent='';$('coOut').replaceChildren();
+  $('status').textContent='読み込みデータを消しました。';
+};
 $('csv').onclick=()=>{const fields=[...new Set(rows.flatMap(r=>Object.keys(r.answers)))];const headers=['id','version','created_at',...fields];const cell=v=>{let s=v==null?'':typeof v==='object'?JSON.stringify(v):String(v);if(/^[\s]*[=+@-]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';};const lines=[headers.map(cell).join(',')];for(const r of rows)lines.push([r.id,r.version,r.created_at,...fields.map(k=>r.answers[k])].map(cell).join(','));const url=URL.createObjectURL(new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='survey-responses.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 </script></html>

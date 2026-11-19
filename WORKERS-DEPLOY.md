@@ -8,7 +8,7 @@
 - デプロイコマンド：npx wrangler deploy
 - Worker名：questionnaire。既存のCloudflareプロジェクト名が異なる場合は、デプロイ前にwrangler.jsoncのnameを実際の名前に一致させてください。
 
-公開される静的ファイルはdist内のindex.html、app.js、survey.jsのみ。Workerは/api/responsesを既存の保存処理に接続し、それ以外はASSETSから配信します。schema.sqlや運用資料を静的配信に含めません。
+公開される静的ファイルはdist内のindex.html、app.js、survey.js、admin.htmlのみ。Workerは/api/responses（回答の保存）、/api/stats（閲覧・開始数の記録）、/api/admin/responses・/api/admin/stats（管理用の読み出し）を処理し、それ以外はASSETSから配信します。schema.sqlや運用資料を静的配信に含めません。
 
 ## 回答受付は別途設定
 初回デプロイ後もDB・受付設定がなければ受付停止です。D1にschema.sqlを適用し、WorkerのDBバインディング名をDBに設定してください。既存のDBバインディングがある場合、Wranglerの設定で消えないか確認し、Cloudflareから案内されるd1_databases設定（実際のdatabase_idを含む）をwrangler.jsoncへ反映してから再デプロイしてください。IDはこの修正では仮置きしません。
