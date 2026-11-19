@@ -40,7 +40,7 @@ npx wrangler d1 execute DB --remote --command "DELETE FROM responses; DELETE FRO
 
 ## 本番設定（2026-11-24 受付開始）
 
-- 公開先はCloudflare Workers（`worker.js` + `dist/`）。Pages用の`functions/`は互換用で、`/api/admin/*`はWorkerにのみ実装がある。管理画面はWorkers側で使う。
+- 公開先はCloudflare Workers（`worker.js` + `dist/`）。公開URLは `https://questionnaire.mct-official.com/`（Workersのカスタムドメイン。`https://questionnaire.tatudragon0327.workers.dev/` も同じWorker）。Pages用の`functions/`は互換用で、`/api/admin/*`はWorkerにのみ実装がある。管理画面はWorkers側で使う。
 - D1は`anketo`（`f82c647c-2004-446c-8828-fbb10e1c8752`）。`schema.sql`適用済みで`responses`と`stats`が存在する。
 - `SURVEY_OPEN`は`true`（`wrangler.jsonc`のvars）。
 - `SURVEY_NOTICE`に実施者・問い合わせ先・利用目的・閲覧者・保管期限・廃棄方針を記載済み。保管期限は「回答の受付を終了した日から1年間」、回答データを見られるのは実施者本人のみ。
